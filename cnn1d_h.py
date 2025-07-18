@@ -165,7 +165,7 @@ class RadargramDataset(Dataset):
                  torch.from_numpy(self.masks[idx])[None] )
 
 #loops
-def run_epoch(model, loader, loss_fn, optimizer, device, threshold=0.7):
+def run_epoch(model, loader, loss_fn, optimizer, device, threshold=0.4):
     is_train = optimizer is not None
     model.train(is_train)
 
@@ -260,8 +260,8 @@ def train():
     val_losses = []
 
     for epoch in range(NUM_EPOCHS):
-        tr_loss, tr_precision, tr_recall, tr_dice, tr_iou = run_epoch(model, train_dl, loss_fn, opt, device)
-        va_loss, va_precision, va_recall, va_dice, va_iou = run_epoch(model, val_dl, loss_fn, None, device, threshold=0.7)
+        tr_loss, tr_precision, tr_recall, tr_dice, tr_iou = run_epoch(model, train_dl, loss_fn, opt, device, threshold=0.4)
+        va_loss, va_precision, va_recall, va_dice, va_iou = run_epoch(model, val_dl, loss_fn, None, device, threshold=0.4)
         scheduler.step(va_loss)
 
         print(f"[{epoch:02}/{NUM_EPOCHS}] "
@@ -370,13 +370,13 @@ def plot_loss_curve(train_losses, val_losses):
     plt.grid(True)
     plt.show()
 
-def calculate_precision_recall(preds, target, threshold=0.7):
+def calculate_precision_recall(preds, target, threshold=0.4):
     #calculate precision and recall
     pred_binary = (torch.sigmoid(preds) > threshold).cpu().numpy().flatten()
     target_binary = target.cpu().numpy().flatten()
 
-    precision = precision_score(target_binary, pred_binary, zero_division=1)
-    recall = recall_score(target_binary, pred_binary, zero_division=1)
+    precision = precision_score(target_binary, pred_binary, zero_division=0)
+    recall = recall_score(target_binary, pred_binary, zero_division=0)
 
     return precision, recall
 

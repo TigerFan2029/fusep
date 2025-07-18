@@ -3,26 +3,58 @@ import numpy as np
 from pathlib import Path
 
 def _reloc_to_indices(reloc_file, *, ignore_bad_row=True):
-    cols, rows = [], []
+    """
+    Parse <reloc_file> and return two lists (rows, cols) whose indices
+    match the *cropped* r-gram created with the second-block window.
+
+    rows : list[int]   zero-based row indices
+    cols : list[int]   zero-based col indices within the c_min–c_max crop
+    """
+    # ── 1. split file into blocks separated by blank lines ────────────────
+    blocks, cur = [], []
     with open(reloc_file, "r") as f:
         for line in f:
-            parts = line.split()
+            s = line.strip()
+            if not s:                               # blank line → new block
+                if cur:
+                    blocks.append(cur)
+                    cur = []
+                continue
+            parts = s.split()
             if len(parts) != 2:
                 continue
-            c, r = map(int, parts)
+            try:
+                c, r = map(int, parts)
+            except ValueError:
+                continue
             if ignore_bad_row and r == 9999:
                 continue
-            cols.append(c)
-            rows.append(r)
+            cur.append((c, r))
+    if cur:
+        blocks.append(cur)
+
+    if len(blocks) < 2:
+        raise ValueError("reloc file has fewer than 2 blocks (layers)")
+
+    # ── 2. window comes from *second* block ───────────────────────────────
+    second_cols = [c for c, _ in blocks[1]]
+    c_min_file  = min(second_cols)          # 1-based indices in original file
+    c_max_file  = max(second_cols)
+    c_min_0     = c_min_file - 1            # left edge used for r-gram crop
+
+    # ── 3. collect every pick from *all* blocks lying inside that window ─
+    rows, cols = [], []
+    for block in blocks:
+        for c, r in block:
+            if not (c_min_file <= c <= c_max_file):     # outside crop window
+                continue
+            rows.append(r - 1)            # 0-based row
+            cols.append(c - 1 - c_min_0)  # 0-based col inside crop
 
     if not cols:
-        raise ValueError("no valid reloc points found")
+        raise ValueError("no picks lie inside 2nd-block window")
 
-    left_edge = min(cols)
-    cols = [c - left_edge          for c in cols]
-    rows = [r - 1                  for r in rows]
     return rows, cols
-
 
 def create_label_array(rgram_file, reloc_file):
     rgram = np.loadtxt(rgram_file)

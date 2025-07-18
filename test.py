@@ -72,27 +72,38 @@ def main():
         metric_txt = " (no ground-truth)"
 
     #plot
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5), sharex=True, sharey=True)
+    fig, ax = plt.subplots(
+    1, 3, figsize=(15, 5),
+    sharex=True, sharey=True,
+    gridspec_kw={"width_ratios": [1, 1, 1]},
+    constrained_layout=True)
 
     vmin = np.percentile(X, 0.5)
     vmax = np.percentile(X, 99.5)
-    ax[0].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper")
+    ax[0].imshow(X,         cmap="gray", vmin=vmin, vmax=vmax,
+             origin="upper", aspect="auto")
     ax[0].set_title("Radargram amplitude")
 
     if Y is not None:
-        ax[1].imshow(Y, cmap="Reds", origin="upper")
+        ax[1].imshow(Y,         cmap="Reds", origin="upper",    aspect="auto")
         ax[1].set_title("Ground-truth mask")
     else:
         ax[1].text(0.5, 0.5, "no label", ha="center", va="center")
         ax[1].set_title("Ground-truth mask")
 
     # ax[2].imshow(X_disp, cmap="gray", origin="upper")
-    ax[2].imshow(pred_mask, cmap="Reds", alpha=0.45, origin="upper")
+    ax[2].imshow(pred_mask, cmap="Reds", origin="upper",
+             alpha=0.45,        aspect="auto")
     ax[2].set_title("Predicted mask overlay")
 
-    for a in ax: a.axis("off")
+    for a in ax:
+        for spine in a.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1)
+            spine.set_color("black")
+        a.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
     fig.suptitle(f"{X_FILE.name}{metric_txt}", fontsize=14)
-    plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":

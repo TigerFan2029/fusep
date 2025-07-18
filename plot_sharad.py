@@ -2,11 +2,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 def plot_radargram(img):
-    # vmin = np.percentile(img, 1)
-    # vmax = np.percentile(img, 99)
+    vmin = np.percentile(img, 1)
+    vmax = np.percentile(img, 99)
 
     plt.figure(figsize=(10, 6))
-    im = plt.imshow(img, cmap="gray", origin="upper")
+    im = plt.imshow(img, cmap="gray", vmin=vmin, vmax=vmax, origin="upper")
     plt.colorbar(im, label="Power / Intensity")
     plt.xlabel("Along-track sample")
     plt.ylabel("Time delay sample")
@@ -22,6 +22,6 @@ def plot_radargram(img):
 # radar_img = read_radar(path, name)
 # plot_radargram(radar_img)
 
-file_path = "/Users/tiger/Desktop/FUSEP/rgram/00588302_rgram.txt"
+file_path = "/Users/tiger/Desktop/FUSEP/reloc_01/00588302_reloc_01.txt"
 radar_data = np.loadtxt(file_path)
 plot_radargram(radar_data)

@@ -78,8 +78,8 @@ def main():
         ax[1].set_title("Ground-truth mask")
 
     # 4) plot only the extracted horizon
-    ax[2].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper")
-    pts = extract_horizon(pred_mask, min_votes=30)  # Nx2 array: (col, row)
+    # ax[2].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper")
+    pts = extract_horizon(pred_mask, min_votes=1)  # Nx2 array: (col, row)
     if pts.size:
         ax[2].plot(pts[:,0], pts[:,1], '-r', linewidth=1.5)
     ax[2].set_title("Extracted horizon")

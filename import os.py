@@ -52,7 +52,6 @@ def read_geom(path, name):
 
     return [lon, lat]
 
-#Example use:
 root         = "/Volumes/data/mars/sharad/"
 reloc_path   = Path("/Users/tiger/Desktop/FUSEP/reloc")
 output_dir   = Path("/Users/tiger/Desktop/FUSEP/rgram")
@@ -65,7 +64,6 @@ for reloc_file in reloc_path.glob("*_reloc.txt"):
         print(f"[SKIP] {outfile.name} already exists")
         continue
 
-    # --- parse into blocks separated by blank lines ---
     blocks = []
     current = []
     with open(reloc_file, "r") as f:
@@ -84,12 +82,10 @@ for reloc_file in reloc_path.glob("*_reloc.txt"):
         if current:
             blocks.append(current)
 
-    # --- require at least two blocks ---
     if len(blocks) < 2:
         print(f"[SKIP] {name}: only {len(blocks)} layer(s) found")
         continue
 
-    # --- take extent of the second block, convert to 0-based ---
     second = blocks[1]
     c_min = min(second) - 1
     c_max = max(second) - 1
@@ -97,7 +93,6 @@ for reloc_file in reloc_path.glob("*_reloc.txt"):
         print(f"[WARN] {name}: second block min index < 1 after conversion, skipping")
         continue
 
-    # --- extract and save ---
     full_rgram = read_radar(root, name)
     keep_rgram = full_rgram[:, c_min : c_max + 1]
     np.savetxt(outfile, keep_rgram, delimiter="\t", fmt="%.8f")
