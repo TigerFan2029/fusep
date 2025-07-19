@@ -16,7 +16,7 @@ from sklearn.metrics import precision_score, recall_score
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 DATA_ROOT   = Path("/Users/tiger/Desktop/FUSEP/data")
-NUM_EPOCHS  = 10
+NUM_EPOCHS  = 15
 BATCH_SIZE  = 128
 LR          = 1e-3
 MODEL_PATH  = Path("/Users/tiger/Desktop/FUSEP/models")
@@ -56,7 +56,7 @@ class PeakPicker1D(nn.Module):
 
 #loss function
 class DiceBCELoss(nn.Module):
-    def __init__(self, pos_weight, bce_weight=0.5, smooth=1):
+    def __init__(self, pos_weight, bce_weight=0.4, smooth=1):
         super().__init__()
         self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         self.bce_weight = bce_weight
@@ -277,7 +277,7 @@ def train():
 
     model   = PeakPicker1D().to(device)
     loss_fn = DiceBCELoss(pos_weight)
-    opt = torch.optim.AdamW(model.parameters(), lr=LR)
+    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-5)
     scheduler = ReduceLROnPlateau(opt, mode="min",
                                 factor=0.5,
                                 patience=1)
@@ -286,6 +286,9 @@ def train():
 
     train_losses = []
     val_losses = []
+
+    patience = 3
+    no_improve = 0
 
     for epoch in range(NUM_EPOCHS):
         tr_loss, tr_acc, tr_precision, tr_recall, tr_dice, tr_iou = run_epoch(model, train_dl, loss_fn, opt, device)
@@ -301,8 +304,16 @@ def train():
 
         if va_loss < best_val:
             best_val = va_loss
+            no_improve = 0
             torch.save(model.state_dict(), BEST_PATH)
             print(f"   ↳ new best saved → {BEST_PATH}")
+        
+        else:
+            no_improve += 1
+            print(f"   ↳ no improvement for {no_improve}/{patience} epochs")
+            if no_improve >= patience:
+                print(f"Stopping early at epoch {epoch}")
+                break
 
     torch.save(model.state_dict(), FINAL_PATH)
     print(f"Final model saved to {FINAL_PATH}")
