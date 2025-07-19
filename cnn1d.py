@@ -16,9 +16,9 @@ from sklearn.metrics import precision_score, recall_score
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 DATA_ROOT   = Path("/Users/tiger/Desktop/FUSEP/data")
-NUM_EPOCHS  = 15
+NUM_EPOCHS  = 20
 BATCH_SIZE  = 128
-LR          = 1e-3
+LR          = 5e-4
 MODEL_PATH  = Path("/Users/tiger/Desktop/FUSEP/models")
 MODEL_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -34,19 +34,22 @@ class PeakPicker1D(nn.Module):
     def __init__(self, in_ch=1):
         super().__init__()
         self.cnn = nn.Sequential(
-            nn.Conv1d(in_ch,  32, kernel_size=5, padding=2),
+            nn.Conv1d(in_ch,  16, kernel_size=5, padding=2),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+
+            nn.Conv1d(16,  32, kernel_size=7, padding=3, stride=2),
             nn.BatchNorm1d(32),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
 
-            nn.Conv1d(32,  64, kernel_size=7, padding=3, stride=2),
+            nn.Conv1d(32, 64, kernel_size=9, padding=4, stride=2),
             nn.BatchNorm1d(64),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
 
-            nn.Conv1d(64, 128, kernel_size=9, padding=4, stride=2),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-
-            nn.Conv1d(128, 1, kernel_size=1)
+            nn.Conv1d(64, 1, kernel_size=1)
         )
 
     def forward(self, x):
@@ -77,43 +80,6 @@ class DiceBCELoss(nn.Module):
 
         return (1 - self.bce_weight) * dice_loss + self.bce_weight * bce_loss
 
-# class FocalDiceLoss(nn.Module):
-#     def __init__(self,
-#                  pos_weight,
-#                  gamma=2.0,
-#                  alpha=0.25,
-#                  dice_weight=0.5,
-#                  smooth=1.0):
-#         super().__init__()
-
-#         self.bce_raw = nn.BCEWithLogitsLoss(
-#             pos_weight=pos_weight,
-#             reduction="none")
-#         self.gamma = gamma
-#         self.alpha = alpha
-#         self.dice_w = dice_weight
-#         self.smooth = smooth
-
-#     def forward(self, logits, target):
-#         prob = torch.sigmoid(logits)
-
-#         #dice
-#         inter = (prob * target).sum()
-#         dice  = (2 * inter + self.smooth) / (
-#                   prob.sum() + target.sum() + self.smooth)
-#         dice_loss = 1.0 - dice
-
-#         #focal
-#         bce_loss = self.bce_raw(logits, target)
-
-#         p_t = prob * target + (1 - prob) * (1 - target)
-#         focal_factor = self.alpha * (1.0 - p_t) ** self.gamma
-
-#         focal_loss = (focal_factor * bce_loss).mean()
-
-#         #total
-#         return self.dice_w * dice_loss + (1 - self.dice_w) * focal_loss
-
 #data prep
 def collect_pairs(root, x_key="_rgram.npy", y_key="_reloc_01.npy"):
     pattern = re.compile(rf"(.+){re.escape(x_key)}$")
@@ -140,7 +106,7 @@ def collect_pairs(root, x_key="_rgram.npy", y_key="_reloc_01.npy"):
     print(f"learning rate = {LR}")
     return pairs
 
-def make_splits(pairs, val_frac=0.2, test_frac=0.2, seed=42):
+def make_splits(pairs, val_frac=0.1, test_frac=0, seed=42):
     train_pairs, tmp_pairs = train_test_split(
         pairs,
         test_size=val_frac + test_frac,
@@ -248,19 +214,15 @@ def run_epoch(model, loader, loss_fn, optimizer, device, threshold=0.5):
 #train
 def train():
     pairs = collect_pairs(DATA_ROOT)
-    tr_pairs, va_pairs, _ = make_splits(pairs)
+    tr_pairs, va_pairs = train_test_split(
+    pairs,
+    test_size=0.2,
+    shuffle=True,
+    random_state=42
+)
 
     ds_train = MultiRadarColumnDataset(tr_pairs)
     ds_val   = MultiRadarColumnDataset(va_pairs)
-
-    # class weighting calc
-    # total_pos = sum(block[1].sum() for block in ds_train.blocks)
-    # total_pix = len(ds_train) * ds_train.depth
-    # total_neg = total_pix - total_pos
-    # pw_value  = total_neg / (total_pos + 1e-6)
-    # device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # pos_weight = torch.tensor([pw_value], device=device)
-    # print(f"Using pos_weight = {pw_value:.2f}")
 
     device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pos_weight_value = 150.0
@@ -277,17 +239,17 @@ def train():
 
     model   = PeakPicker1D().to(device)
     loss_fn = DiceBCELoss(pos_weight)
-    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-5)
+    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-3)
     scheduler = ReduceLROnPlateau(opt, mode="min",
                                 factor=0.5,
-                                patience=1)
+                                patience=2)
 
     best_val = float("inf")
 
     train_losses = []
     val_losses = []
 
-    patience = 3
+    patience = 10
     no_improve = 0
 
     for epoch in range(NUM_EPOCHS):
@@ -413,7 +375,7 @@ def calculate_precision_recall(preds, target, threshold=0.5):
     return precision, recall
 
 @torch.no_grad()
-def sweep_threshold(model, val_dl, device, metric="dice", steps=11):
+def sweep_threshold(model, val_dl, device, metric="dice", steps=5):
     model.eval()
     best_score, best_t = -1, 0.5
     Ts = np.linspace(0.2, 0.8, steps)
