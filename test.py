@@ -7,23 +7,32 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import precision_score, recall_score
 
 
-MODEL_DIR = Path("/Users/tiger/Desktop/FUSEP/models")
-DATA_DIR = Path("/Users/tiger/Desktop/FUSEP/data")
-FILE = "00588302"
-X_FILE = DATA_DIR / f"rgram/{FILE}_rgram.npy"
-Y_FILE = DATA_DIR / f"reloc_01/{FILE}_reloc_01.npy"
+MODEL_DIR = Path("/Users/tiger/Desktop/FUSEP/models/more_data")
+DATA_DIR = Path("/Users/tiger/Desktop/FUSEP/")
+FILE = "00357601"
+X_FILE = DATA_DIR / f"test_rgram/{FILE}_rgram.txt"
+Y_FILE = DATA_DIR / f"test_reloc_01/{FILE}_reloc_01.txt"
 
 class PeakPicker1D(nn.Module):
     def __init__(self, in_ch: int = 1):
         super().__init__()
         self.cnn = nn.Sequential(
-            nn.Conv1d(in_ch, 32, 5, padding=2),
-            nn.BatchNorm1d(32), nn.ReLU(),
-            nn.Conv1d(32, 64, 7, padding=3, stride=2),
-            nn.BatchNorm1d(64), nn.ReLU(),
-            nn.Conv1d(64, 128, 9, padding=4, stride=2),
-            nn.BatchNorm1d(128), nn.ReLU(),
-            nn.Conv1d(128, 1, 1),
+            nn.Conv1d(in_ch,  16, kernel_size=5, padding=2),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+
+            nn.Conv1d(16,  32, kernel_size=7, padding=3, stride=2),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+
+            nn.Conv1d(32, 64, kernel_size=9, padding=4, stride=2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+
+            nn.Conv1d(64, 1, kernel_size=1)
         )
 
     def forward(self, x):
@@ -53,12 +62,12 @@ def main():
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, best_T = load_model(dev)
 
-    X = np.load(X_FILE).astype(np.float32)
+    X = np.loadtxt(X_FILE).astype(np.float32)
     # vmin = np.percentile(X, 1)
     # vmax = np.percentile(X, 99)
     # X = np.clip(X, vmin, vmax)
     
-    Y     = np.load(Y_FILE).astype(np.uint8) if Y_FILE.exists() else None
+    Y     = np.loadtxt(Y_FILE).astype(np.uint8) if Y_FILE.exists() else None
 
     X_norm    = zscore_cols(X)
     pred_mask = predict(model, X_norm, best_T, dev)

@@ -2,8 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 def plot_radargram(img):
-    vmin = np.percentile(img, 1)
-    vmax = np.percentile(img, 99)
+    vmin = np.percentile(img, 0)
+    vmax = np.percentile(img, 100)
 
     plt.figure(figsize=(10, 6))
     im = plt.imshow(img, cmap="gray", vmin=vmin, vmax=vmax, origin="upper")
@@ -22,6 +22,6 @@ def plot_radargram(img):
 # radar_img = read_radar(path, name)
 # plot_radargram(radar_img)
 
-file_path = "/Users/tiger/Desktop/FUSEP/reloc_01/00588302_reloc_01.txt"
+file_path = "/Users/tiger/Desktop/FUSEP/rgram/00357601_rgram.txt"
 radar_data = np.loadtxt(file_path)
 plot_radargram(radar_data)
