@@ -32,17 +32,30 @@ from scipy.ndimage import median_filter
 def median_filter_denoise(img, size=3):
     return median_filter(img, size=size)  # `size` controls the filter window, e.g., 3x3, 5x5
 
-def dwt_denoise_trace(x, wavelet="db4", level=None):
-    coeffs = pywt.wavedec(x, wavelet=wavelet, level=level)
-    detail_last = coeffs[-1]
-    sigma = np.median(np.abs(detail_last)) / 0.6745
-    n = x.size
-    thr = sigma * np.sqrt(2 * np.log(n))
-    new_coeffs = [coeffs[0]]
-    for c in coeffs[1:]:
-        new_coeffs.append(pywt.threshold(c, thr, mode="soft"))
-    y = pywt.waverec(new_coeffs, wavelet=wavelet)
-    return y[:n]
+def dwt_denoise_img(img, wavelet="db4", level=None):
+    # 对整个图像进行小波去噪：按行处理（即每一行都会被去噪）
+    coeffs = pywt.wavedec2(img, wavelet=wavelet, level=level)
+    
+    # 如果是多层分解，coeffs[0] 是近似系数，coeffs[1:] 是细节系数
+    cA = coeffs[0]
+    details = coeffs[1:]
+    
+    # 使用多层分解后的细节系数（水平、垂直、对角线）进行去噪
+    for detail in details:
+        cH, cV, cD = detail  # 细节系数
+        sigma = np.median(np.abs(cD)) / 0.6745  # 计算噪声的标准差
+        n = img.size
+        thr = sigma * np.sqrt(2 * np.log(n))  # 设置阈值
+
+        # 对细节系数进行软阈值去噪
+        cH = pywt.threshold(cH, thr, mode="soft")
+        cV = pywt.threshold(cV, thr, mode="soft")
+        cD = pywt.threshold(cD, thr, mode="soft")
+    
+    # 使用去噪后的系数重构图像
+    new_coeffs = [cA] + details  # 组合去噪后的系数
+    y = pywt.waverec2(new_coeffs, wavelet)  # 重构图像
+    return y
 
 def read_radar(path, name):
     path_rgram = os.path.join(path, 'rgram', 's_' + name + '_rgram.lbl')
@@ -54,20 +67,20 @@ def read_radar(path, name):
         img_rgram = np.where(mask, 0, img_rgram)
     
     # Apply wavelet denoising
-    img_rgram_denoised = np.apply_along_axis(dwt_denoise_trace, 0, img_rgram)  # 沿列（trace）进行去噪
+    img_rgram_denoised = dwt_denoise_img(img_rgram)
     
     # Apply median filtering after wavelet denoising
-    img_rgram_denoised = median_filter_denoise(img_rgram_denoised, size=2)
+    img_rgram_denoised = median_filter_denoise(img_rgram_denoised, size=3)
     
     # Apply Gaussian filtering after wavelet denoising
-    # img_rgram_denoised = gaussian_filter_denoise(img_rgram_denoised, sigma=0.2)
+    img_rgram_denoised = gaussian_filter_denoise(img_rgram_denoised, sigma=1)
     
     return scale(img_rgram_denoised)
 
 
 root         = "/Volumes/data/mars/sharad/"
 reloc_path   = Path("/Users/tiger/Desktop/FUSEP/reloc")
-output_dir   = Path("/Users/tiger/Desktop/FUSEP/rgram")
+output_dir   = Path("/Users/tiger/Desktop/FUSEP/test")
 
 for reloc_file in reloc_path.glob("*_reloc.txt"):
     name = reloc_file.stem.replace("_reloc", "")

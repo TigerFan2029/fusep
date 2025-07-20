@@ -6,33 +6,30 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from sklearn.metrics import precision_score, recall_score
 
-
-MODEL_DIR = Path("/Users/tiger/Desktop/FUSEP/models/more_data")
+model = "more_data_oldcode"
+MODEL_DIR = Path(f"/Users/tiger/Desktop/FUSEP/models/more_data_oldcode{model}")
 DATA_DIR = Path("/Users/tiger/Desktop/FUSEP/")
 FILE = "00357601"
-X_FILE = DATA_DIR / f"test_rgram/{FILE}_rgram.txt"
-Y_FILE = DATA_DIR / f"test_reloc_01/{FILE}_reloc_01.txt"
+X_FILE = DATA_DIR / f"rgram/{FILE}_rgram.txt"
+Y_FILE = DATA_DIR / f"reloc_01/{FILE}_reloc_01.txt"
 
 class PeakPicker1D(nn.Module):
     def __init__(self, in_ch: int = 1):
         super().__init__()
         self.cnn = nn.Sequential(
-            nn.Conv1d(in_ch,  16, kernel_size=5, padding=2),
-            nn.BatchNorm1d(16),
-            nn.ReLU(),
-            nn.Dropout(p=0.2),
-
-            nn.Conv1d(16,  32, kernel_size=7, padding=3, stride=2),
+            nn.Conv1d(in_ch,  32, kernel_size=5, padding=2),
             nn.BatchNorm1d(32),
             nn.ReLU(),
-            nn.Dropout(p=0.2),
 
-            nn.Conv1d(32, 64, kernel_size=9, padding=4, stride=2),
+            nn.Conv1d(32,  64, kernel_size=7, padding=3, stride=2),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Dropout(p=0.2),
 
-            nn.Conv1d(64, 1, kernel_size=1)
+            nn.Conv1d(64, 128, kernel_size=9, padding=4, stride=2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+
+            nn.Conv1d(128, 1, kernel_size=1)
         )
 
     def forward(self, x):
@@ -63,10 +60,6 @@ def main():
     model, best_T = load_model(dev)
 
     X = np.loadtxt(X_FILE).astype(np.float32)
-    # vmin = np.percentile(X, 1)
-    # vmax = np.percentile(X, 99)
-    # X = np.clip(X, vmin, vmax)
-    
     Y     = np.loadtxt(Y_FILE).astype(np.uint8) if Y_FILE.exists() else None
 
     X_norm    = zscore_cols(X)
@@ -112,7 +105,7 @@ def main():
             spine.set_color("black")
         a.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
 
-    fig.suptitle(f"{X_FILE.name}{metric_txt}", fontsize=14)
+    fig.suptitle(f"{X_FILE.name}{metric_txt} model={model}", fontsize=14)
     plt.show()
 
 if __name__ == "__main__":

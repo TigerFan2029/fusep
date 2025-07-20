@@ -77,43 +77,6 @@ class DiceBCELoss(nn.Module):
 
         return (1 - self.bce_weight) * dice_loss + self.bce_weight * bce_loss
 
-# class FocalDiceLoss(nn.Module):
-#     def __init__(self,
-#                  pos_weight,
-#                  gamma=2.0,
-#                  alpha=0.25,
-#                  dice_weight=0.5,
-#                  smooth=1.0):
-#         super().__init__()
-
-#         self.bce_raw = nn.BCEWithLogitsLoss(
-#             pos_weight=pos_weight,
-#             reduction="none")
-#         self.gamma = gamma
-#         self.alpha = alpha
-#         self.dice_w = dice_weight
-#         self.smooth = smooth
-
-#     def forward(self, logits, target):
-#         prob = torch.sigmoid(logits)
-
-#         #dice
-#         inter = (prob * target).sum()
-#         dice  = (2 * inter + self.smooth) / (
-#                   prob.sum() + target.sum() + self.smooth)
-#         dice_loss = 1.0 - dice
-
-#         #focal
-#         bce_loss = self.bce_raw(logits, target)
-
-#         p_t = prob * target + (1 - prob) * (1 - target)
-#         focal_factor = self.alpha * (1.0 - p_t) ** self.gamma
-
-#         focal_loss = (focal_factor * bce_loss).mean()
-
-#         #total
-#         return self.dice_w * dice_loss + (1 - self.dice_w) * focal_loss
-
 #data prep
 def collect_pairs(root, x_key="_rgram.npy", y_key="_reloc_01.npy"):
     pattern = re.compile(rf"(.+){re.escape(x_key)}$")
@@ -252,15 +215,6 @@ def train():
 
     ds_train = MultiRadarColumnDataset(tr_pairs)
     ds_val   = MultiRadarColumnDataset(va_pairs)
-
-    # class weighting calc
-    # total_pos = sum(block[1].sum() for block in ds_train.blocks)
-    # total_pix = len(ds_train) * ds_train.depth
-    # total_neg = total_pix - total_pos
-    # pw_value  = total_neg / (total_pos + 1e-6)
-    # device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # pos_weight = torch.tensor([pw_value], device=device)
-    # print(f"Using pos_weight = {pw_value:.2f}")
 
     device  = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pos_weight_value = 150.0
