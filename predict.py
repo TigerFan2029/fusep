@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 # ─── USER CONFIG ──────────────────────────────────────────────────────────────
-MODEL_DIR    = Path("/Users/tiger/Desktop/FUSEP/models/noise_reduc_oldcode")
+MODEL_DIR    = Path("/Users/tiger/Desktop/FUSEP/models/more_data_oldcode")
 DATA_DIR     = Path("/Users/tiger/Desktop/FUSEP")
 CSV_FILE     = DATA_DIR / "id_selected_165.csv"
 RGRAM_DIR    = DATA_DIR / "rgram_full"
@@ -63,53 +63,64 @@ def predict_mask(model, x_norm, T, device):
 from sklearn.linear_model import RANSACRegressor
 import numpy as np
 
+import math
+
+import math
+from sklearn.linear_model import RANSACRegressor
+
 def analyze_block_ransac_global(
     block, c0, c1,
-    resid_thresh1=12, min_inliers1=20,
-    resid_thresh2=3,  min_inliers2=20
+    resid_thresh1=12, min_inliers1=120,
+    resid_thresh2=2,  min_inliers2=45,
+    min_distance=10,    # minimum vertical separation in pixels
+    max_slope_deg=60   # max allowed slope in degrees for layers
 ):
-    """
-    block: H×W binary mask for columns c0..c1
-    c0, c1: global column indices of this block
-
-    resid_thresh1: max vertical residual for layer #1
-    min_inliers1 : min points needed to accept layer #1
-
-    resid_thresh2: max vertical residual for layer #2
-    min_inliers2 : min points needed to attempt & accept layer #2
-
-    Returns: n_layers, (a1,b1), (a2,b2) or None, distance
-    """
     rows, cols = np.where(block)
-    # require enough points for even the first layer
     if len(rows) < min_inliers1:
         return 0, None, None, np.nan
 
-    # global x‐coords
+    # Convert to global x-coordinates
     xg = cols + c0
-    pts = np.column_stack([xg, rows])
+    pts = np.column_stack([xg, rows])  # (N,2)
 
-    # ── fit layer #1 with its own threshold ────────────────────────────
+    # Fit first line with its own threshold
     r1 = RANSACRegressor(residual_threshold=resid_thresh1)
     r1.fit(pts[:, [0]], pts[:, 1])
     in1 = r1.inlier_mask_
     a1, b1 = r1.estimator_.coef_[0], r1.estimator_.intercept_
 
-    # remove layer #1 inliers and check if enough remain for #2
+    # Calculate slope for first layer in degrees
+    slope_deg1 = math.degrees(math.atan(abs(a1)))
+    if slope_deg1 > max_slope_deg:
+        print(f"⚠️ Layer 1 slope {slope_deg1:.2f}° exceeds {max_slope_deg}° threshold, ignoring this layer.")
+        return 0, None, None, np.nan
+
+    # Remove layer #1 inliers and check if enough remain for #2
     rem = pts[~in1]
     if len(rem) < min_inliers2:
         return 1, (a1, b1), None, np.nan
 
-    # ── fit layer #2 with its own threshold ────────────────────────────
+    # Fit second line with its own threshold (using only points from the first layer's outliers)
     r2 = RANSACRegressor(residual_threshold=resid_thresh2)
     r2.fit(rem[:, [0]], rem[:, 1])
     a2, b2 = r2.estimator_.coef_[0], r2.estimator_.intercept_
 
-    # distance at midpoint
+    # Calculate slope for second layer in degrees
+    slope_deg2 = math.degrees(math.atan(abs(a2)))
+    if slope_deg2 > max_slope_deg:
+        print(f"⚠️ Layer 2 slope {slope_deg2:.2f}° exceeds {max_slope_deg}° threshold, ignoring this layer.")
+        return 1, (a1, b1), None, np.nan
+
+    # Calculate vertical separation between the two layers at the block’s midpoint
     x_mid = (c0 + c1) / 2
-    y1m   = r1.predict([[x_mid]])[0]
-    y2m   = r2.predict([[x_mid]])[0]
-    dist  = abs(y2m - y1m)
+    y1m  = r1.predict([[x_mid]])[0]
+    y2m  = r2.predict([[x_mid]])[0]
+    dist = abs(y2m - y1m)
+
+    # If the layers are too close (based on vertical separation), return only 1 layer
+    if dist < min_distance:
+        print(f"⚠️ Layers are too close (distance = {dist:.2f} px), returning 1 layer.")
+        return 1, (a1, b1), None, np.nan
 
     return 2, (a1, b1), (a2, b2), dist
 
@@ -170,11 +181,11 @@ def main():
             if n >= 1:
                 a1, b1 = l1
                 y1 = a1*x_block + b1
-                ax[2].plot(x_block, y1, color='blue', linewidth=2)
+                ax[2].plot(x_block, y1, color='blue', linewidth=1)
             if n == 2:
                 a2, b2 = l2
                 y2 = a2*x_block + b2
-                ax[2].plot(x_block, y2, color='green', linewidth=2)
+                ax[2].plot(x_block, y2, color='green', linewidth=1)
 
             stats.append({
                 "col_start": c0, "col_end": c1,
