@@ -112,5 +112,5 @@ for name in names:
         exit(0)
 
     except Exception:
-        print(f"{name}_rgram.lbl does not exist")
+        print(f"{name}.lbl does not exist")
     

@@ -7,14 +7,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from sklearn.metrics import precision_score, recall_score
 
 # ─── USER CONFIG ──────────────────────────────────────────────────────────────
-MODEL_DIR    = Path("/Users/tiger/Desktop/FUSEP/models/more_data")
+MODEL_DIR    = Path("/Users/tiger/Desktop/FUSEP/models/noise_reduc_oldcode")
 DATA_DIR     = Path("/Users/tiger/Desktop/FUSEP")
-CSV_FILE     = DATA_DIR / "id_selected.csv"
-RGRAM_DIR    = DATA_DIR / "rgram"
-RELOC_DIR    = DATA_DIR / "reloc_01"
+CSV_FILE     = DATA_DIR / "id_selected_165.csv"
+RGRAM_DIR    = DATA_DIR / "rgram_full"
 OUTPUT_DIR   = DATA_DIR / "predictions"
 
 BLOCK_SIZE = 100
@@ -62,38 +60,62 @@ def predict_mask(model, x_norm, T, device):
     return (prob > T).astype(np.uint8).squeeze().T   # H×W binary mask
 
 # ─── LAYER ANALYSIS ───────────────────────────────────────────────────────────
-def analyze_ranges(mask, ranges):
-    H,W = mask.shape
-    stats = []
-    for c0,c1 in ranges:
-        c1 = min(c1, W-1)
-        pres = mask[:, c0:c1+1].any(axis=1)  # collapse to 1D
-        d = np.diff(pres.astype(int))
-        starts = np.where(d==1)[0]+1
-        ends   = np.where(d==-1)[0]
-        if pres[0]:  starts = np.r_[0, starts]
-        if pres[-1]: ends   = np.r_[ends, H-1]
-        runs = list(zip(starts, ends))
-        nlay = len(runs)
-        c1_ctr = c2_ctr = dist = np.nan
-        if nlay>=1:
-            s,e = runs[0]; c1_ctr = (s+e)/2
-        if nlay>=2:
-            s,e = runs[1]; c2_ctr = (s+e)/2
-            dist = abs(c2_ctr - c1_ctr)
-        stats.append({
-            "col_start": c0, "col_end": c1,
-            "n_layers": nlay,
-            "center1": float(c1_ctr),
-            "center2": float(c2_ctr),
-            "distance": float(dist)
-        })
-    return stats
+from sklearn.linear_model import RANSACRegressor
+import numpy as np
 
-# ─── MAIN ─────────────────────────────────────────────────────────────────────
+def analyze_block_ransac_global(
+    block, c0, c1,
+    resid_thresh1=12, min_inliers1=20,
+    resid_thresh2=3,  min_inliers2=20
+):
+    """
+    block: H×W binary mask for columns c0..c1
+    c0, c1: global column indices of this block
+
+    resid_thresh1: max vertical residual for layer #1
+    min_inliers1 : min points needed to accept layer #1
+
+    resid_thresh2: max vertical residual for layer #2
+    min_inliers2 : min points needed to attempt & accept layer #2
+
+    Returns: n_layers, (a1,b1), (a2,b2) or None, distance
+    """
+    rows, cols = np.where(block)
+    # require enough points for even the first layer
+    if len(rows) < min_inliers1:
+        return 0, None, None, np.nan
+
+    # global x‐coords
+    xg = cols + c0
+    pts = np.column_stack([xg, rows])
+
+    # ── fit layer #1 with its own threshold ────────────────────────────
+    r1 = RANSACRegressor(residual_threshold=resid_thresh1)
+    r1.fit(pts[:, [0]], pts[:, 1])
+    in1 = r1.inlier_mask_
+    a1, b1 = r1.estimator_.coef_[0], r1.estimator_.intercept_
+
+    # remove layer #1 inliers and check if enough remain for #2
+    rem = pts[~in1]
+    if len(rem) < min_inliers2:
+        return 1, (a1, b1), None, np.nan
+
+    # ── fit layer #2 with its own threshold ────────────────────────────
+    r2 = RANSACRegressor(residual_threshold=resid_thresh2)
+    r2.fit(rem[:, [0]], rem[:, 1])
+    a2, b2 = r2.estimator_.coef_[0], r2.estimator_.intercept_
+
+    # distance at midpoint
+    x_mid = (c0 + c1) / 2
+    y1m   = r1.predict([[x_mid]])[0]
+    y2m   = r2.predict([[x_mid]])[0]
+    dist  = abs(y2m - y1m)
+
+    return 2, (a1, b1), (a2, b2), dist
+
 def main():
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, T = load_model(DEVICE)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model, T = load_model(device)
 
     OUTPUT_DIR.mkdir(exist_ok=True)
     (OUTPUT_DIR/"plots").mkdir(exist_ok=True)
@@ -105,61 +127,93 @@ def main():
 
     all_stats = []
     for name in names:
-        # load precomputed radargram and reloc
-        X = np.loadtxt(RGRAM_DIR/f"{name}_rgram.txt", dtype=np.float32)
-        yfile = RELOC_DIR/f"{name}_reloc_01.txt"
-        Y = np.loadtxt(yfile, dtype=np.uint8) if yfile.exists() else None
+        print(f"\n▶️ Processing {name}…")
+        # load radargram
+        try:
+            X = np.loadtxt(RGRAM_DIR/f"{name}_rgram.txt", dtype=np.float32)
+        except Exception as e:
+            print(f"⚠️  Couldn’t load {name}_rgram.txt: {e}")
+            continue
 
-        # predict
+        # predict mask
         Xn   = zscore_cols(X)
-        mask = predict_mask(model, Xn, T, DEVICE)
+        mask = predict_mask(model, Xn, T, device)
 
         # save mask
         np.savetxt(OUTPUT_DIR/f"{name}_mask.txt", mask, fmt="%d", delimiter="\t")
 
-        # optional metrics
-        if Y is not None:
-            P = precision_score(Y.flatten(), mask.flatten(), zero_division=1)
-            R = recall_score   (Y.flatten(), mask.flatten(), zero_division=1)
-            print(f"{name}: Precision={P:.3f}, Recall={R:.3f}")
-
-        # overlay plot
-        fig, ax = plt.subplots(1,3,figsize=(15,5), sharex=True, sharey=True)
-        vmin,vmax = np.percentile(X,0.5), np.percentile(X,99.5)
-        ax[0].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper", aspect="auto")
+        # setup plot
+        fig, ax = plt.subplots(1,3,figsize=(18,5), sharex=True, sharey=True)
+        vmin, vmax = np.percentile(X, 0.5), np.percentile(X, 99.5)
+        ax[0].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper", aspect="auto", interpolation="nearest" )
         ax[0].set_title("Radargram")
-        if Y is not None:
-            ax[1].imshow(Y, cmap="Reds", origin="upper", aspect="auto")
-            ax[1].set_title("Ground Truth")
-        else:
-            ax[1].text(0.5,0.5,"no label",ha="center",va="center")
-            ax[1].set_title("Ground Truth")
-        ax[2].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper", aspect="auto")
-        ax[2].imshow(mask, cmap="Reds", alpha=0.4, origin="upper", aspect="auto")
-        ax[2].set_title("Prediction Overlay")
+
+        # middle panel: mask only
+        ax[1].imshow(mask, cmap="Reds", origin="upper", aspect="auto", interpolation="nearest" )
+        ax[1].set_title("Mask Only")
+
+        # right panel: mask + RANSAC lines
+        ax[2].imshow(mask, cmap="Reds", alpha=0.4, origin="upper", aspect="auto", interpolation="nearest" )
+        ax[2].set_title("Mask + Lines")
+
+        # Layer analysis with RANSAC and plotting layer lines
+        H, W = mask.shape
+        col_ranges = [(i, min(i+BLOCK_SIZE-1, W-1)) for i in range(0, W, BLOCK_SIZE)]
+
+        stats = []
+        for c0, c1 in col_ranges:
+            block = mask[:, c0:c1+1]
+            n, l1, l2, dist = analyze_block_ransac_global(block, c0, c1)
+
+            # plot lines
+            x_block = np.arange(c0, c1+1)
+            if n >= 1:
+                a1, b1 = l1
+                y1 = a1*x_block + b1
+                ax[2].plot(x_block, y1, color='blue', linewidth=2)
+            if n == 2:
+                a2, b2 = l2
+                y2 = a2*x_block + b2
+                ax[2].plot(x_block, y2, color='green', linewidth=2)
+
+            stats.append({
+                "col_start": c0, "col_end": c1,
+                "n_layers": n,
+                "center1": l1 and (a1*c0 + b1),   # approx center at block start
+                "center2": l2 and (a2*c0 + b2),
+                "distance": dist
+            })
+
+        # collect stats
+        for idx, s in enumerate(stats):
+            s["name"] = name
+            s["block_idx"] = idx
+            all_stats.append(s)
+
+        print(f"✅ Finished {name}: {len(stats)} blocks")
+        
+        for idx, s in enumerate(stats):
+            print(f"   Block {idx:02d} cols {s['col_start']}-{s['col_end']}: {s['n_layers']} layer(s)")
+
+        # Save the plot with lines overlaid
         for a in ax:
             a.axis("off")
         fig.suptitle(name, fontsize=14)
-        fig.savefig(OUTPUT_DIR/"plots"/f"{name}_overlay.png", dpi=150)
+        fig.savefig(OUTPUT_DIR/"plots"/f"{name}_overlay.pdf", dpi=300)
         plt.close(fig)
 
-        # layer analysis
-        H, W = mask.shape
-        col_ranges = [
-            (i, min(i + BLOCK_SIZE - 1, W - 1))
-            for i in range(0, W, BLOCK_SIZE)
-        ]
-        stats = analyze_ranges(mask, col_ranges)
-
-        for s in stats:
-            s["name"] = name
-            all_stats.append(s)
-
-    # write out summary CSV
+    # Write out summary CSV
     stats_df = pd.DataFrame(all_stats,
-        columns=["name","col_start","col_end","n_layers","center1","center2","distance"])
+        columns=["name", "block_idx", "col_start", "col_end", "n_layers", "center1", "center2", "distance"])
+
     stats_df.to_csv(OUTPUT_DIR/"layer_stats.csv", index=False)
-    print(f"Layer stats written to {OUTPUT_DIR/'layer_stats.csv'}")
+
+    for name, grp in stats_df.groupby("name"):
+        out_fn = OUTPUT_DIR/f"{name}_layer_stats.csv"
+        grp.to_csv(out_fn, index=False)
+        print(f"Wrote {out_fn.name}")
+
+    print(f"\n🏁 Done! {len(names)} files → masks, plots + stats in {OUTPUT_DIR}/")
 
 if __name__ == "__main__":
     main()

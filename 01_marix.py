@@ -1,4 +1,3 @@
-import os
 import numpy as np
 from pathlib import Path
 
@@ -70,9 +69,8 @@ def create_label_array(rgram_file, reloc_file):
     label[ np.array(rows)[mask], np.array(cols)[mask] ] = 1
     return label
 
-root = "/Volumes/data/mars/sharad/"
-rgram_path   = Path("/Users/tiger/Desktop/FUSEP/rgram")
-output_dir   = Path("/Users/tiger/Desktop/FUSEP/reloc_01")
+rgram_path   = Path("/Users/tiger/Desktop/FUSEP/rgram_full")
+output_dir   = Path("/Users/tiger/Desktop/FUSEP/reloc_01_full")
 
 for rgram_file in rgram_path.glob("*_rgram.txt"):
     file_name=rgram_file.stem.replace("_rgram", "")
