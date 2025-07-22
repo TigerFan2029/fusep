@@ -22,6 +22,6 @@ def plot_radargram(img):
 # radar_img = read_radar(path, name)
 # plot_radargram(radar_img)
 
-file_path = "/Users/tiger/Desktop/FUSEP/predictions/00169201_mask.txt"
+file_path = "/Users/tiger/Desktop/FUSEP/data_wholedwt_3_1/rgram/00600201_rgram.txt"
 radar_data = np.loadtxt(file_path)
 plot_radargram(radar_data)

@@ -6,12 +6,12 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from sklearn.metrics import precision_score, recall_score
 
-model_file = "more_data_oldcode"
+model_file = "PRE_denoise_Final"
 MODEL_DIR = Path(f"/Users/tiger/Desktop/FUSEP/models/{model_file}")
-DATA_DIR = Path("/Users/tiger/Desktop/FUSEP/")
+DATA_DIR = Path("/Users/tiger/Desktop/FUSEP/data_pre_noisereduc")
 FILE = "00357601"
-X_FILE = DATA_DIR / f"data_wholedwt_3_1/rgram/{FILE}_rgram.txt"
-Y_FILE = DATA_DIR / f"data_wholedwt_3_1/reloc_01/{FILE}_reloc_01.txt"
+X_FILE = DATA_DIR / f"rgram/{FILE}_rgram.txt"
+Y_FILE = DATA_DIR / f"reloc_01/{FILE}_reloc_01.txt"
 
 class PeakPicker1D(nn.Module):
     def __init__(self, in_ch: int = 1):
@@ -81,8 +81,8 @@ def main():
     gridspec_kw={"width_ratios": [1, 1, 1]},
     constrained_layout=True)
 
-    vmin = np.percentile(X, 0.5)
-    vmax = np.percentile(X, 99.5)
+    vmin = np.percentile(X, 0)
+    vmax = np.percentile(X, 100)
     ax[0].imshow(X,         cmap="gray", vmin=vmin, vmax=vmax,
              origin="upper", aspect="auto")
     ax[0].set_title("Radargram amplitude")
