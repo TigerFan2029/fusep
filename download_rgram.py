@@ -32,7 +32,7 @@ def median_filter_denoise(img, size=3):
     return median_filter(img, size=size)  # `size` controls the filter window, e.g., 3x3, 5x5
 
 def dwt_denoise_img(img, wavelet="db4", level=None):
-    # 对整个图像进行小波去噪：按行处理（即每一行都会被去噪）
+    # 对整个图像进行小波去噪：按行处理
     coeffs = pywt.wavedec2(img, wavelet=wavelet, level=level)
     
     # 如果是多层分解，coeffs[0] 是近似系数，coeffs[1:] 是细节系数
@@ -81,8 +81,8 @@ root         = "/Volumes/data/mars/sharad/"
 output_dir   = Path("/Users/tiger/Desktop/FUSEP/rgram_full")
 
 # Read the CSV file to get the radargram names
-csv_file = pd.read_csv('/Users/tiger/Desktop/FUSEP/id_selected_165.csv')
-names = csv_file['ProductId'].str.replace('s_', '')  # Remove "s_" prefix
+csv_file = pd.read_csv('/Users/tiger/Desktop/FUSEP/138_path.csv')
+names = csv_file['ProductId'].str.replace('s_', '')
 
 expected = set(names)
 for f in output_dir.glob("*.txt"):

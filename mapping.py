@@ -2,59 +2,73 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
 import os
+import numpy as np
+from geopy.distance import geodesic
 
-# Define paths
-path_data_path = '/Users/tiger/Desktop/FUSEP/165_path.csv'  # Path to your 165_path.csv file
-layer_stats_folder = '/Users/tiger/Desktop/FUSEP/predictions_bs100_moredata_12120_245_10_60/'  # Folder containing your layer stats files
-
-# Load the path data (contains radar path information)
+path_data_path = '/Users/tiger/Desktop/FUSEP/138_clipped.csv'
+layer_stats_folder = '/Users/tiger/Desktop/FUSEP/predictions/'
 path_df = pd.read_csv(path_data_path)
 
-# Ensure 'ProductId' is of the same type (string)
 path_df['ProductId'] = path_df['ProductId'].astype(str)
 
-# Prepare a DataFrame with combined lat, lon, and depth (from path_df and layer_stats)
+def calculate_distance(lat1, lon1, lat2, lon2):
+    return geodesic((lat1, lon1), (lat2, lon2)).meters
+
 combined_data = []
 
-# Loop through each path and process the corresponding layer stats file
 for _, row in path_df.iterrows():
     path_name = row['ProductId']
     path_name = path_name.lstrip('s_').rstrip('_rgram')
     path_lat = row['StartLat']
     path_lon = row['StartLon']
+    path_end_lat = row['StopLat']
+    path_end_lon = row['StopLon']
+
+    total_distance = calculate_distance(path_lat, path_lon, path_end_lat, path_end_lon)
     
-    # Construct the full file path for the layer stats file
     layer_stats_file = f"{layer_stats_folder}/{path_name}_layer_stats.csv"
     
     if os.path.exists(layer_stats_file):
-        # Load the layer stats file for the current radar path
         layer_stats_df = pd.read_csv(layer_stats_file)
         
-        # Add the path info and depth data to the combined data
         for _, block in layer_stats_df.iterrows():
+            # Get depth (distance) and block index
+            depth = block['distance']
+            
+            # Calculate the fraction of the total distance this block represents
+            block_fraction = block['block_idx'] / len(layer_stats_df)
+            
+            # Interpolate along the path by dividing the total distance by the number of blocks
+            interp_lat = path_lat + block_fraction * (path_end_lat - path_lat)
+            interp_lon = path_lon + block_fraction * (path_end_lon - path_lon)
+            
+            # Add the interpolated point and depth data to the combined list
             combined_data.append({
-                'Longitude': path_lon,
-                'Latitude': path_lat,
-                'Depth': block['distance'],
+                'Longitude': interp_lon,
+                'Latitude': interp_lat,
+                'Depth': depth,
                 'Path_Name': path_name
             })
 
-# Convert combined data into a DataFrame
 combined_df = pd.DataFrame(combined_data)
 
-# Debug: Print column names and first few rows to verify
-print(f"Columns in combined_df: {combined_df.columns}")
-print(combined_df.head())
+# Print out the table of depth ranges and counts, user selected what to exclude
+depth_bins = np.arange(0, combined_df['Depth'].max() + 100, 100)
+depth_range_counts = pd.cut(combined_df['Depth'], bins=depth_bins).value_counts().sort_index()
+
+print("Depth Range and Count Table:")
+print(depth_range_counts)
+
+threshold = float(input("Enter a depth threshold: "))
+combined_df.loc[combined_df['Depth'] > threshold, 'Depth'] = 0
 
 # Create a GeoDataFrame with geometry from the lat, lon coordinates
 geometry = [Point(xy) for xy in zip(combined_df['Longitude'], combined_df['Latitude'])]
 gdf = gpd.GeoDataFrame(combined_df, geometry=geometry)
 
-# Set the CRS (coordinate reference system) to WGS84 (lat/lon)
-gdf.set_crs("EPSG:4326", inplace=True)
+gdf.set_crs("+proj=latlong +datum=WGS84 +no_defs +lon_0=0", inplace=True)
 
-# Save the GeoDataFrame as a shapefile
-output_shapefile_path = '/Users/tiger/Desktop/FUSEP/depth_data_with_lat_lon.shp'
+output_shapefile_path = '/Users/tiger/Desktop/FUSEP/138_try.shp'
 gdf.to_file(output_shapefile_path)
 
 print(f"Shapefile created at: {output_shapefile_path}")

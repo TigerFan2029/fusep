@@ -2,19 +2,12 @@ import numpy as np
 from pathlib import Path
 
 def _reloc_to_indices(reloc_file, *, ignore_bad_row=True):
-    """
-    Parse <reloc_file> and return two lists (rows, cols) whose indices
-    match the *cropped* r-gram created with the second-block window.
-
-    rows : list[int]   zero-based row indices
-    cols : list[int]   zero-based col indices within the c_min–c_max crop
-    """
-    # ── 1. split file into blocks separated by blank lines ────────────────
+    # split file into blocks separated by blank lines
     blocks, cur = [], []
     with open(reloc_file, "r") as f:
         for line in f:
             s = line.strip()
-            if not s:                               # blank line → new block
+            if not s:
                 if cur:
                     blocks.append(cur)
                     cur = []
@@ -35,19 +28,17 @@ def _reloc_to_indices(reloc_file, *, ignore_bad_row=True):
     if len(blocks) < 2:
         raise ValueError("reloc file has fewer than 2 blocks (layers)")
 
-    # ── 2. window comes from *second* block ───────────────────────────────
     second_cols = [c for c, _ in blocks[1]]
-    c_min_file  = min(second_cols)          # 1-based indices in original file
+    c_min_file  = min(second_cols)
     c_max_file  = max(second_cols)
-    c_min_0     = c_min_file - 1            # left edge used for r-gram crop
+    c_min_0     = c_min_file - 1 # 1-based indices in reloc file
 
-    # ── 3. collect every pick from *all* blocks lying inside that window ─
     rows, cols = [], []
     for block in blocks:
         for c, r in block:
-            if not (c_min_file <= c <= c_max_file):     # outside crop window
+            if not (c_min_file <= c <= c_max_file):
                 continue
-            rows.append(r - 1)            # 0-based row
+            rows.append(r - 1) # 0-based row
             cols.append(c - 1 - c_min_0)  # 0-based col inside crop
 
     if not cols:

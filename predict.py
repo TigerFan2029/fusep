@@ -8,16 +8,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
-# ─── USER CONFIG ──────────────────────────────────────────────────────────────
-MODEL_DIR    = Path("/Users/tiger/Desktop/FUSEP/models/more_data_oldcode")
+import math
+from sklearn.linear_model import RANSACRegressor
+
+#config
+model_name   = "PRE_denoise_Final"
+MODEL_DIR    = Path(f"/Users/tiger/Desktop/FUSEP/models/{model_name}")
 DATA_DIR     = Path("/Users/tiger/Desktop/FUSEP")
-CSV_FILE     = DATA_DIR / "id_selected_165.csv"
-RGRAM_DIR    = DATA_DIR / "rgram_full"
+CSV_FILE     = DATA_DIR / "138_path.csv"
+RGRAM_DIR    = DATA_DIR / "rgram_clipped"
 OUTPUT_DIR   = DATA_DIR / "predictions"
 
-BLOCK_SIZE = 100
+BLOCK_SIZE = 4
 
-# ─── MODEL DEFINITION ─────────────────────────────────────────────────────────
+#model
 class PeakPicker1D(nn.Module):
     def __init__(self, in_ch=1):
         super().__init__()
@@ -57,72 +61,85 @@ def predict_mask(model, x_norm, T, device):
     with torch.no_grad():
         logit = model(inp)
         prob  = torch.sigmoid(logit).cpu().numpy()
-    return (prob > T).astype(np.uint8).squeeze().T   # H×W binary mask
+    return (prob > T).astype(np.uint8).squeeze().T # H×W binary mask
 
-# ─── LAYER ANALYSIS ───────────────────────────────────────────────────────────
-from sklearn.linear_model import RANSACRegressor
-import numpy as np
-
-import math
-
-import math
-from sklearn.linear_model import RANSACRegressor
-
+#layer analysis
 def analyze_block_ransac_global(
     block, c0, c1,
-    resid_thresh1=12, min_inliers1=120,
-    resid_thresh2=2,  min_inliers2=45,
-    min_distance=10,    # minimum vertical separation in pixels
-    max_slope_deg=60   # max allowed slope in degrees for layers
+    resid_thresh1=1, min_inliers1=4,
+    resid_thresh2=1,  min_inliers2=4,
+    min_distance=5, # minimum vertical separation in pixels
+    max_slope_deg=60 # max allowed slope in degrees
 ):
     rows, cols = np.where(block)
     if len(rows) < min_inliers1:
-        return 0, None, None, np.nan
+        return 0, None, None, 0
 
     # Convert to global x-coordinates
     xg = cols + c0
     pts = np.column_stack([xg, rows])  # (N,2)
 
-    # Fit first line with its own threshold
-    r1 = RANSACRegressor(residual_threshold=resid_thresh1)
-    r1.fit(pts[:, [0]], pts[:, 1])
-    in1 = r1.inlier_mask_
-    a1, b1 = r1.estimator_.coef_[0], r1.estimator_.intercept_
+    # find the topmost layer for layer 1 by scanning from the top of the block
+    r1 = RANSACRegressor(residual_threshold=resid_thresh1, max_trials=1000)
+    try:
+        r1.fit(pts[:, [0]], pts[:, 1])
+    except ValueError as e:
+        print(f"⚠️ RANSAC failed for layer 1: {e}")
+        return 0, None, None, 0
 
-    # Calculate slope for first layer in degrees
+    # Check the slope of the first layer
+    a1, b1 = r1.estimator_.coef_[0], r1.estimator_.intercept_
     slope_deg1 = math.degrees(math.atan(abs(a1)))
+    
     if slope_deg1 > max_slope_deg:
         print(f"⚠️ Layer 1 slope {slope_deg1:.2f}° exceeds {max_slope_deg}° threshold, ignoring this layer.")
         return 0, None, None, np.nan
+    
+    # Calculate vertical position at the midpoint
+    x_mid = (c0 + c1) / 2
+    y1m  = r1.predict([[x_mid]])[0]
+    
+    if len(r1.inlier_mask_) < min_inliers1:
+        return 0, None, None, np.nan
 
-    # Remove layer #1 inliers and check if enough remain for #2
-    rem = pts[~in1]
+    # check for the second layer using the outliers of the first
+    rem = pts[~r1.inlier_mask_]
     if len(rem) < min_inliers2:
-        return 1, (a1, b1), None, np.nan
+        return 1, (a1, b1), None, 0
 
-    # Fit second line with its own threshold (using only points from the first layer's outliers)
-    r2 = RANSACRegressor(residual_threshold=resid_thresh2)
-    r2.fit(rem[:, [0]], rem[:, 1])
+    # Fit second line with its own threshold
+    r2 = RANSACRegressor(residual_threshold=resid_thresh2, max_trials=1000)
+    try:
+        r2.fit(rem[:, [0]], rem[:, 1])
+    except ValueError as e:
+        print(f"⚠️ RANSAC failed for layer 2: {e}")
+        return 1, (a1, b1), None, 0
+    
     a2, b2 = r2.estimator_.coef_[0], r2.estimator_.intercept_
 
-    # Calculate slope for second layer in degrees
+    # Calculate slope for second layer
     slope_deg2 = math.degrees(math.atan(abs(a2)))
     if slope_deg2 > max_slope_deg:
         print(f"⚠️ Layer 2 slope {slope_deg2:.2f}° exceeds {max_slope_deg}° threshold, ignoring this layer.")
-        return 1, (a1, b1), None, np.nan
+        return 1, (a1, b1), None, 0
 
     # Calculate vertical separation between the two layers at the block’s midpoint
-    x_mid = (c0 + c1) / 2
-    y1m  = r1.predict([[x_mid]])[0]
     y2m  = r2.predict([[x_mid]])[0]
     dist = abs(y2m - y1m)
 
-    # If the layers are too close (based on vertical separation), return only 1 layer
+    # Ensure layer 1 is above layer 2
+    if y1m > y2m:
+        a1, b1, a2, b2 = a2, b2, a1, b1
+        slope_deg1, slope_deg2 = slope_deg2, slope_deg1
+
+        dist = abs(y2m - y1m)
+
     if dist < min_distance:
         print(f"⚠️ Layers are too close (distance = {dist:.2f} px), returning 1 layer.")
-        return 1, (a1, b1), None, np.nan
+        return 1, (a1, b1), None, 0
 
     return 2, (a1, b1), (a2, b2), dist
+
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -133,12 +150,17 @@ def main():
 
     df    = pd.read_csv(CSV_FILE)
     names = (df["ProductId"]
-               .str.replace(r"^s_","",regex=True)
-               .str.replace(r"_rgram$","",regex=True))
+            .str.replace(r"^s_","",regex=True)
+            .str.replace(r"_rgram$","",regex=True))
 
     all_stats = []
     for name in names:
         print(f"\n▶️ Processing {name}…")
+
+        if (OUTPUT_DIR / f"{name}_mask.txt").exists():
+            print(f"⚠️ Skipping {name}, mask already exists.")
+            continue
+    
         # load radargram
         try:
             X = np.loadtxt(RGRAM_DIR/f"{name}_rgram.txt", dtype=np.float32)
@@ -150,24 +172,24 @@ def main():
         Xn   = zscore_cols(X)
         mask = predict_mask(model, Xn, T, device)
 
-        # save mask
         np.savetxt(OUTPUT_DIR/f"{name}_mask.txt", mask, fmt="%d", delimiter="\t")
 
-        # setup plot
-        fig, ax = plt.subplots(1,3,figsize=(18,5), sharex=True, sharey=True)
-        vmin, vmax = np.percentile(X, 0.5), np.percentile(X, 99.5)
-        ax[0].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper", aspect="auto", interpolation="nearest" )
+        fig, ax = plt.subplots(
+            1, 3, figsize=(15, 5),
+            sharex=True, sharey=True,
+            gridspec_kw={"width_ratios": [1, 1, 1]},
+            constrained_layout=True)
+        vmin, vmax = np.percentile(X, 0), np.percentile(X, 100)
+        ax[0].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper", aspect="auto")
         ax[0].set_title("Radargram")
 
-        # middle panel: mask only
-        ax[1].imshow(mask, cmap="Reds", origin="upper", aspect="auto", interpolation="nearest" )
+        ax[1].imshow(mask, cmap="Reds", origin="upper", aspect="auto")
         ax[1].set_title("Mask Only")
 
-        # right panel: mask + RANSAC lines
-        ax[2].imshow(mask, cmap="Reds", alpha=0.4, origin="upper", aspect="auto", interpolation="nearest" )
+        ax[2].imshow(mask, cmap="Reds", alpha=0.2, origin="upper", aspect="auto")
         ax[2].set_title("Mask + Lines")
 
-        # Layer analysis with RANSAC and plotting layer lines
+        # Layer analysis with RANSAC
         H, W = mask.shape
         col_ranges = [(i, min(i+BLOCK_SIZE-1, W-1)) for i in range(0, W, BLOCK_SIZE)]
 
@@ -176,24 +198,27 @@ def main():
             block = mask[:, c0:c1+1]
             n, l1, l2, dist = analyze_block_ransac_global(block, c0, c1)
 
-            # plot lines
             x_block = np.arange(c0, c1+1)
-            if n >= 1:
+            if n == 1:
                 a1, b1 = l1
-                y1 = a1*x_block + b1
+                y1 = a1 * x_block + b1
                 ax[2].plot(x_block, y1, color='blue', linewidth=1)
-            if n == 2:
+            elif n == 2:
+                a1, b1 = l1
+                y1 = a1 * x_block + b1
+                ax[2].plot(x_block, y1, color='blue', linewidth=1)
+                
                 a2, b2 = l2
-                y2 = a2*x_block + b2
+                y2 = a2 * x_block + b2
                 ax[2].plot(x_block, y2, color='green', linewidth=1)
+
 
             stats.append({
                 "col_start": c0, "col_end": c1,
                 "n_layers": n,
-                "center1": l1 and (a1*c0 + b1),   # approx center at block start
-                "center2": l2 and (a2*c0 + b2),
-                "distance": dist
-            })
+                "center1": l1 and (a1 * c0 + b1),
+                "center2": l2 and (a2 * c0 + b2),
+                "distance": dist})
 
         # collect stats
         for idx, s in enumerate(stats):
@@ -206,24 +231,33 @@ def main():
         for idx, s in enumerate(stats):
             print(f"   Block {idx:02d} cols {s['col_start']}-{s['col_end']}: {s['n_layers']} layer(s)")
 
-        # Save the plot with lines overlaid
-        for a in ax:
-            a.axis("off")
-        fig.suptitle(name, fontsize=14)
-        fig.savefig(OUTPUT_DIR/"plots"/f"{name}_overlay.pdf", dpi=300)
-        plt.close(fig)
+        stats_df = pd.DataFrame(stats,
+            columns=["name", "block_idx", "col_start", "col_end", "n_layers", "center1", "center2", "distance"])
 
-    # Write out summary CSV
-    stats_df = pd.DataFrame(all_stats,
-        columns=["name", "block_idx", "col_start", "col_end", "n_layers", "center1", "center2", "distance"])
-
-    stats_df.to_csv(OUTPUT_DIR/"layer_stats.csv", index=False)
-
-    for name, grp in stats_df.groupby("name"):
-        out_fn = OUTPUT_DIR/f"{name}_layer_stats.csv"
-        grp.to_csv(out_fn, index=False)
+        # Save individual CSV
+        out_fn = OUTPUT_DIR / f"{name}_layer_stats.csv"
+        stats_df.to_csv(out_fn, index=False)
         print(f"Wrote {out_fn.name}")
 
+        for a in ax:
+            for spine in a.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(1)
+                spine.set_color("black")
+            a.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+        fig.suptitle(f"{name}_rgram.txt model={model_name}", fontsize=14)
+
+        fig.savefig(OUTPUT_DIR/"plots"/f"{name}_overlay.pdf", dpi=300)
+        # plt.show()
+        # plt.close(fig)
+        # break
+
+    all_stats_df = pd.concat([pd.read_csv(OUTPUT_DIR / f"{name}_layer_stats.csv") for name in names], ignore_index=True)
+
+    # final summary CSV
+    all_stats_df.to_csv(OUTPUT_DIR / "layer_stats.csv", index=False)
+    print(f"Wrote final layer_stats.csv")
     print(f"\n🏁 Done! {len(names)} files → masks, plots + stats in {OUTPUT_DIR}/")
 
 if __name__ == "__main__":

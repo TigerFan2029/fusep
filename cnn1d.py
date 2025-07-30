@@ -121,7 +121,7 @@ def make_splits(pairs, val_frac=0.1, test_frac=0.1, seed=42):
 class MultiRadarColumnDataset(Dataset):
     #Treat every column of every radargram as an independent sample
     def __init__(self, pairs):
-        self.blocks      = []   # xy numpy list
+        self.blocks = []
         self.col_offsets = []
         col_total = 0
 
@@ -140,9 +140,8 @@ class MultiRadarColumnDataset(Dataset):
             col_total += X.shape[1]
             self.col_offsets.append(col_total)
 
-        self.depth = self.blocks[0][0].shape[0]  #rows
+        self.depth = self.blocks[0][0].shape[0]
 
-    #need torch.utils.data.Dataset
     def __len__(self):
         return self.col_offsets[-1]
 
@@ -155,8 +154,8 @@ class MultiRadarColumnDataset(Dataset):
 
     def __getitem__(self, idx):
         b, c = self._lookup(idx)
-        X, Y = self.blocks[b]          #(depth, width)
-        col_x = torch.from_numpy(X[:, c])[None]  # add (1, depth)
+        X, Y = self.blocks[b]  #(depth, width)
+        col_x = torch.from_numpy(X[:, c])[None]
         col_y = torch.from_numpy(Y[:, c])[None]
         return col_x, col_y
 
@@ -300,10 +299,6 @@ def test():
     #pin_memory=True
     
     #weight calc
-    total_pos = sum(block[1].sum() for block in ds_test.blocks)
-    total_pix = len(ds_test) * ds_test.depth
-    total_neg = total_pix - total_pos
-    #pw_value  = total_neg / (total_pos + 1e-6)          # >1 if rare
     device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pw_value = 150.0
     pos_weight = torch.tensor([pw_value], device=device)
@@ -323,11 +318,11 @@ def test():
     #visualization
     for blk_idx, (X_norm, _) in enumerate(ds_test.blocks):
         H, W = X_norm.shape
-        X_batch = torch.from_numpy(X_norm.T)      # (W, H)
+        X_batch = torch.from_numpy(X_norm.T) # (W, H)
         X_batch = X_batch.unsqueeze(1).to(device) # (W, 1, H)
 
-        logits = model(X_batch)                   # (W,1,H)
-        probs  = torch.sigmoid(logits)            # (W,1,H)
+        logits = model(X_batch) # (W,1,H)
+        probs  = torch.sigmoid(logits) # (W,1,H)
         pred_mask = (probs > best_T).cpu().numpy().T
 
         fig, ax = plt.subplots(1, 2, figsize=(12, 6),

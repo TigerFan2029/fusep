@@ -8,7 +8,7 @@ from sklearn.metrics import precision_score, recall_score
 
 model_file = "PRE_denoise_Final"
 MODEL_DIR = Path(f"/Users/tiger/Desktop/FUSEP/models/{model_file}")
-DATA_DIR = Path("/Users/tiger/Desktop/FUSEP/data_pre_noisereduc")
+DATA_DIR = Path("/Users/tiger/Desktop/FUSEP/data_wholedwt_3_1")
 FILE = "00357601"
 X_FILE = DATA_DIR / f"rgram/{FILE}_rgram.txt"
 Y_FILE = DATA_DIR / f"reloc_01/{FILE}_reloc_01.txt"
@@ -83,12 +83,11 @@ def main():
 
     vmin = np.percentile(X, 0)
     vmax = np.percentile(X, 100)
-    ax[0].imshow(X,         cmap="gray", vmin=vmin, vmax=vmax,
-             origin="upper", aspect="auto")
+    ax[0].imshow(X, cmap="gray", vmin=vmin, vmax=vmax, origin="upper", aspect="auto")
     ax[0].set_title("Radargram amplitude")
 
     if Y is not None:
-        ax[1].imshow(Y,         cmap="Reds", origin="upper",    aspect="auto")
+        ax[1].imshow(Y, cmap="Reds", origin="upper", aspect="auto")
         ax[1].set_title("Ground-truth mask")
     else:
         ax[1].text(0.5, 0.5, "no label", ha="center", va="center")
