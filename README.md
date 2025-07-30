@@ -1,7 +1,11 @@
 Best Models = PRE_denoise_oldcode_Final and noise_reduc_oldcode_Final
+
 MAIN_DIR = ../../FUSEP
 
+"" = folder
+
 Workflow for training model:
+
   1. Use import os.py to preprocess and download data according to "reloc". Preprocessing includes noise reduction, scaling, and clipping the rgram to the range of second layer.
      Input: a "reloc" folder in MAIN_DIR containing the reloc file
      Output: rgrams in "rgram" folder, MAIN_DIR
@@ -25,6 +29,7 @@ Workflow for training model:
   at any point. Use plot_sharad.py to visualize files
 
 Workflow for making predictions and map:
+
   1. Use download_rgram.py to preprocess and download data according to .csv file from GIS. Preprocessing includes noise reduction and scaling.
      Input: a .csv file in MAIN_DIR containing the id of the wanted rgrams
      Output: rgrams in "rgram_full" folder, MAIN_DIR
