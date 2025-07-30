@@ -4,6 +4,7 @@ MAIN_DIR = ../../FUSEP
 
 "" = folder
 
+
 Workflow for training model:
 
   1. Use import os.py to preprocess and download data according to "reloc". Preprocessing includes noise reduction, scaling, and clipping the rgram to the range of second layer.
@@ -26,7 +27,8 @@ Workflow for training model:
      Input: "Model" and 1 "Data/rgram"
      Output: Image of Pre-denoised radargram (left), labelled relocation mask (center), and predicted mask overlay (right)
 
-  at any point. Use plot_sharad.py to visualize files
+  * at any point. Use plot_sharad.py to visualize files
+
 
 Workflow for making predictions and map:
 
